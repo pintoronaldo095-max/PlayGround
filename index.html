@@ -1,0 +1,922 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23ff5fa2'/%3E%3Ccircle cx='11' cy='13' r='2' fill='%232b0f22'/%3E%3Ccircle cx='21' cy='13' r='2' fill='%232b0f22'/%3E%3C/svg%3E">
+<title>Jelly Lab — soft-body playground</title>
+<style>
+  :root {
+    --bg0: #0b0714;
+    --bg1: #170d26;
+    --ink: #f6ecff;
+    --muted: #b9a8d6;
+    --pink: #ff5fa2;
+    --violet: #8b5cf6;
+    --glass: rgba(255, 255, 255, 0.07);
+    --line: rgba(255, 255, 255, 0.14);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: radial-gradient(120% 90% at 50% 0%, var(--bg1), var(--bg0) 70%);
+    color: var(--ink);
+    font-family: ui-rounded, "SF Pro Rounded", "Segoe UI", system-ui, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  #stage { position: fixed; inset: 0; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  canvas.dragging { cursor: grabbing; }
+
+  .brand {
+    position: fixed;
+    top: max(18px, env(safe-area-inset-top));
+    left: 22px;
+    z-index: 3;
+    pointer-events: none;
+  }
+  .brand h1 {
+    margin: 0;
+    font-size: 19px;
+    letter-spacing: 0.22em;
+    font-weight: 800;
+    text-transform: uppercase;
+    background: linear-gradient(90deg, #ffd1e6, var(--pink) 45%, #a78bfa);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .brand p { margin: 4px 0 0; font-size: 12px; color: var(--muted); letter-spacing: 0.04em; }
+
+  .hud {
+    position: fixed;
+    left: 50%;
+    bottom: max(18px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    border-radius: 999px;
+    background: rgba(18, 11, 30, 0.72);
+    border: 1px solid var(--line);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+    max-width: calc(100vw - 20px);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .hud::-webkit-scrollbar { display: none; }
+  .hud button {
+    appearance: none;
+    border: 1px solid transparent;
+    background: var(--glass);
+    color: var(--ink);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    padding: 9px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: transform 0.12s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+  .hud button:hover { background: rgba(255, 255, 255, 0.14); border-color: var(--line); }
+  .hud button:active { transform: scale(0.95); }
+  .hud .sep { width: 1px; height: 22px; background: var(--line); flex: 0 0 auto; }
+
+  .sliders {
+    position: fixed;
+    top: max(18px, env(safe-area-inset-top));
+    right: 22px;
+    z-index: 3;
+    width: 168px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    background: rgba(18, 11, 30, 0.66);
+    border: 1px solid var(--line);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .sliders label { display: block; margin-bottom: 2px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .sliders .row + .row { margin-top: 10px; }
+  input[type="range"] {
+    width: 100%;
+    height: 18px;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 99px;
+    background: linear-gradient(90deg, var(--violet), var(--pink));
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    appearance: none; width: 14px; height: 14px; margin-top: -5px;
+    border-radius: 50%; background: #fff;
+    box-shadow: 0 0 0 3px rgba(255, 95, 162, 0.35);
+  }
+  input[type="range"]::-moz-range-track { height: 4px; border-radius: 99px; background: linear-gradient(90deg, var(--violet), var(--pink)); }
+  input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: #fff; }
+
+  .stats {
+    position: fixed;
+    right: 22px;
+    bottom: max(18px, env(safe-area-inset-bottom));
+    z-index: 3;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-align: right;
+    line-height: 1.6;
+    pointer-events: none;
+  }
+  .stats b { color: var(--ink); font-weight: 700; }
+
+  .overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: radial-gradient(80% 70% at 50% 45%, rgba(20, 10, 34, 0.35), rgba(6, 4, 12, 0.86));
+    transition: opacity 0.45s ease, visibility 0.45s ease;
+  }
+  .overlay.hidden { opacity: 0; visibility: hidden; }
+  .card {
+    width: min(430px, 100%);
+    text-align: center;
+    padding: 34px 30px 30px;
+    border-radius: 26px;
+    background: linear-gradient(180deg, rgba(38, 22, 60, 0.9), rgba(18, 11, 30, 0.92));
+    border: 1px solid var(--line);
+    box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+  .blobmark {
+    width: 78px; height: 78px; margin: 0 auto 16px;
+    border-radius: 46% 54% 52% 48% / 52% 46% 54% 48%;
+    background: radial-gradient(circle at 35% 28%, #ffd0e4, var(--pink) 45%, #b3277a 100%);
+    box-shadow: 0 0 40px rgba(255, 95, 162, 0.45), inset -8px -10px 20px rgba(0, 0, 0, 0.25);
+    animation: wobble 3.4s ease-in-out infinite;
+  }
+  @keyframes wobble {
+    0%, 100% { border-radius: 46% 54% 52% 48% / 52% 46% 54% 48%; transform: rotate(-2deg) scale(1); }
+    50% { border-radius: 55% 45% 46% 54% / 45% 55% 45% 55%; transform: rotate(2deg) scale(1.04); }
+  }
+  .card h2 { margin: 0 0 8px; font-size: 24px; letter-spacing: 0.02em; }
+  .card p { margin: 0 auto 22px; max-width: 320px; font-size: 13.5px; line-height: 1.65; color: var(--muted); }
+  #startBtn {
+    appearance: none;
+    border: 0;
+    padding: 15px 46px;
+    border-radius: 999px;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #2a0a1a;
+    background: linear-gradient(180deg, #ffc2dd, var(--pink) 55%, #f0438e);
+    box-shadow: 0 12px 30px rgba(255, 95, 162, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.2s ease;
+  }
+  #startBtn:hover { transform: translateY(-2px); box-shadow: 0 18px 40px rgba(255, 95, 162, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.7); }
+  #startBtn:active { transform: scale(0.97); }
+  .hint { margin-top: 16px; font-size: 11px; color: #8d7aa8; letter-spacing: 0.06em; }
+
+  @media (max-width: 720px) {
+    .sliders { display: none; }
+    .stats { display: none; }
+    .brand h1 { font-size: 15px; }
+    .brand p { font-size: 10.5px; }
+    .hud { bottom: max(12px, env(safe-area-inset-bottom)); gap: 6px; padding: 7px 8px; }
+    .hud button { font-size: 11.5px; padding: 8px 11px; }
+  }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c" aria-label="Interactive soft-body jelly you can grab, squeeze, poke and slap"></canvas></div>
+
+<header class="brand">
+  <h1>Jelly Lab</h1>
+  <p>Soft-body physics playground</p>
+</header>
+
+<div class="sliders" aria-hidden="true">
+  <div class="row">
+    <label for="softness">Softness</label>
+    <input id="softness" type="range" min="0.35" max="1" step="0.01" value="0.72">
+  </div>
+  <div class="row">
+    <label for="damping">Damping</label>
+    <input id="damping" type="range" min="0.01" max="0.16" step="0.005" value="0.045">
+  </div>
+</div>
+
+<div class="hud" role="toolbar" aria-label="Jelly interactions">
+  <button id="squeeze" type="button">Squeeze</button>
+  <button id="poke" type="button">Poke</button>
+  <button id="slap" type="button">Slap</button>
+  <div class="sep"></div>
+  <button id="calm" type="button">Calm</button>
+  <button id="reset" type="button">Reset</button>
+</div>
+
+<div class="stats">
+  <div><b id="fps">60</b> fps</div>
+  <div><b id="energy">0</b> energy</div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="card">
+    <div class="blobmark" aria-hidden="true"></div>
+    <h2>A very squishy friend</h2>
+    <p>Drag to grab and stretch. Let go and watch it wobble. Poke it, squeeze it, or give it a slap — every touch ripples through the whole body.</p>
+    <button id="startBtn" type="button">Start</button>
+    <div class="hint">Drag · Poke · Squeeze · Slap</div>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  const overlay = document.getElementById("overlay");
+  const startBtn = document.getElementById("startBtn");
+  const fpsEl = document.getElementById("fps");
+  const energyEl = document.getElementById("energy");
+  const softEl = document.getElementById("softness");
+  const dampEl = document.getElementById("damping");
+
+  const TAU = Math.PI * 2;
+  const N = 84;
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  let W = 0, H = 0, DPR = 1;
+  let started = false;
+  let center = { x: 0, y: 0 };
+  let restR = 120;
+  let area0 = 0;
+
+  const nodes = [];      // ring nodes {x,y,px,py}
+
+  const pointer = { x: 0, y: 0, down: false, id: null };
+  const grab = { active: false, indices: [], offsets: [], strength: 0, startX: 0, startY: 0, moved: 0 };
+  const ripples = [];
+  const sparks = [];
+
+  let softness = Number(softEl.value);
+  let damping = Number(dampEl.value);
+  let time = 0;
+  let last = performance.now();
+  let acc = 0;
+  let blinkAt = 2.5;
+  let blink = 0;
+  let mood = 0;           // 0 calm .. 1 squished
+  let moodTarget = 0;
+  let faceX = 0, faceY = 0, faceSX = 1, faceSY = 1;
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    center.x = W / 2;
+    center.y = H / 2 + Math.min(H * 0.03, 26);
+    restR = Math.min(W * 0.24, H * 0.235, 190);
+    restR = Math.max(restR, 84);
+    build();
+  }
+
+  function build() {
+    nodes.length = 0;
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * TAU - Math.PI / 2;
+      const x = center.x + Math.cos(a) * restR;
+      const y = center.y + Math.sin(a) * restR;
+      nodes.push({ x, y, px: x, py: y });
+    }
+    area0 = polygonArea();
+  }
+
+  function polygonArea() {
+    let a = 0;
+    for (let i = 0; i < N; i++) {
+      const p = nodes[i], q = nodes[(i + 1) % N];
+      a += p.x * q.y - q.x * p.y;
+    }
+    return a / 2;
+  }
+
+  const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
+  const rand = (a, b) => a + Math.random() * (b - a);
+
+  // ---------- audio ----------
+  let audio = null;
+  let lastSound = 0;
+  function initAudio() {
+    if (audio) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    audio = new AC();
+  }
+  function env(node, t0, attack, decay, peak) {
+    const g = node.gain;
+    g.setValueAtTime(0.0001, t0);
+    g.exponentialRampToValueAtTime(Math.max(peak, 0.0002), t0 + attack);
+    g.exponentialRampToValueAtTime(0.0001, t0 + attack + decay);
+  }
+  function boing(strength = 1, pitch = 1) {
+    if (!audio) return;
+    const now = audio.currentTime;
+    if (now - lastSound < 0.035) return;
+    lastSound = now;
+    const t = now + 0.005;
+    const osc = audio.createOscillator();
+    const gain = audio.createGain();
+    const filter = audio.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(1400 * pitch, t);
+    filter.frequency.exponentialRampToValueAtTime(320, t + 0.34);
+    osc.type = "sine";
+    const base = (150 + 90 * pitch) * (0.9 + Math.random() * 0.2);
+    osc.frequency.setValueAtTime(base * 1.5, t);
+    osc.frequency.exponentialRampToValueAtTime(base * 0.72, t + 0.3);
+    env(gain, t, 0.008, 0.32, 0.16 * clamp(strength, 0.25, 1.6));
+    osc.connect(filter).connect(gain).connect(audio.destination);
+    osc.start(t);
+    osc.stop(t + 0.4);
+  }
+  function thwack(strength = 1) {
+    if (!audio) return;
+    const now = audio.currentTime;
+    const t = now + 0.005;
+    const dur = 0.13;
+    const buf = audio.createBuffer(1, Math.ceil(audio.sampleRate * dur), audio.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      const k = 1 - i / data.length;
+      data[i] = (Math.random() * 2 - 1) * Math.pow(k, 2.6);
+    }
+    const src = audio.createBufferSource();
+    src.buffer = buf;
+    const bp = audio.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.setValueAtTime(900 + Math.random() * 500, t);
+    bp.Q.value = 1.1;
+    const gain = audio.createGain();
+    env(gain, t, 0.004, dur, 0.22 * clamp(strength, 0.3, 1.8));
+    src.connect(bp).connect(gain).connect(audio.destination);
+    src.start(t);
+    src.stop(t + dur + 0.02);
+    boing(strength * 0.8, 0.8);
+  }
+
+  // ---------- physics ----------
+  // Position-based dynamics: stable at any drag speed, and the outline keeps
+  // its shape because edge, radial and area constraints are relaxed together.
+  const ITERATIONS = 4;
+  const MAX_STEP = 18; // px per 1/120s substep
+
+  function step(dt) {
+    time += dt;
+    const damp = Math.exp(-damping * 0.18);
+    const breathe = reduced ? 0 : Math.sin(time * 1.6) * 0.012;
+    const targetR = restR * (1 + breathe);
+    const edgeRest = 2 * restR * Math.sin(Math.PI / N);
+    const stiff = 1.15 - softness * 0.6;
+
+    // integrate (Verlet)
+    for (let i = 0; i < N; i++) {
+      const p = nodes[i];
+      const vx = (p.x - p.px) * damp;
+      const vy = (p.y - p.py) * damp;
+      p.px = p.x;
+      p.py = p.y;
+      p.x += vx;
+      p.y += vy;
+    }
+
+    // grab is applied before the constraint relaxation so neighbours follow
+    if (grab.active) {
+      const pull = 0.25 + grab.strength * 0.2;
+      for (let k = 0; k < grab.indices.length; k++) {
+        const p = nodes[grab.indices[k]];
+        const o = grab.offsets[k];
+        p.x += (pointer.x + o.x - p.x) * pull;
+        p.y += (pointer.y + o.y - p.y) * pull;
+      }
+    }
+
+    for (let iter = 0; iter < ITERATIONS; iter++) {
+      // edge length constraints
+      for (let i = 0; i < N; i++) {
+        const p = nodes[i];
+        const q = nodes[(i + 1) % N];
+        const dx = q.x - p.x, dy = q.y - p.y;
+        const d = Math.hypot(dx, dy) || 1e-6;
+        const diff = ((d - edgeRest) / d) * 0.5 * 0.6 * stiff;
+        p.x += dx * diff; p.y += dy * diff;
+        q.x -= dx * diff; q.y -= dy * diff;
+      }
+
+      // radial constraints keep the blob round and anchored
+      for (let i = 0; i < N; i++) {
+        const p = nodes[i];
+        const dx = p.x - center.x, dy = p.y - center.y;
+        const d = Math.hypot(dx, dy) || 1e-6;
+        const diff = ((d - targetR) / d) * 0.22 * stiff;
+        p.x -= dx * diff;
+        p.y -= dy * diff;
+      }
+
+      // area (pressure) constraint: inflate when squashed, shrink when stretched
+      const area = polygonArea();
+      const err = clamp((area0 - area) / area0, -0.35, 0.35);
+      for (let i = 0; i < N; i++) {
+        const p = nodes[i];
+        const dx = p.x - center.x, dy = p.y - center.y;
+        const d = Math.hypot(dx, dy) || 1e-6;
+        p.x += (dx / d) * err * restR * 0.14 * stiff;
+        p.y += (dy / d) * err * restR * 0.14 * stiff;
+      }
+    }
+
+    // clamp speed and keep everything on screen
+    const m = 16;
+    for (let i = 0; i < N; i++) {
+      const p = nodes[i];
+      let vx = p.x - p.px, vy = p.y - p.py;
+      const speed = Math.hypot(vx, vy);
+      if (speed > MAX_STEP) {
+        const s = MAX_STEP / speed;
+        vx *= s; vy *= s;
+        p.px = p.x - vx;
+        p.py = p.y - vy;
+      }
+      const rx = p.x - center.x, ry = p.y - center.y;
+      const rd = Math.hypot(rx, ry);
+      const maxR = restR * 2.1;
+      if (rd > maxR) {
+        p.x = center.x + (rx / rd) * maxR;
+        p.y = center.y + (ry / rd) * maxR;
+        p.px = p.x - vx * 0.3;
+        p.py = p.y - vy * 0.3;
+      }
+      if (p.x < m) { p.x = m; p.px = m + vx * 0.3; }
+      else if (p.x > W - m) { p.x = W - m; p.px = W - m + vx * 0.3; }
+      if (p.y < m) { p.y = m; p.py = m + vy * 0.3; }
+      else if (p.y > H - m) { p.y = H - m; p.py = H - m + vy * 0.3; }
+    }
+  }
+
+  function impulseAt(x, y, dirX, dirY, power, radius) {
+    let hit = false;
+    for (let i = 0; i < N; i++) {
+      const p = nodes[i];
+      const dx = p.x - x, dy = p.y - y;
+      const d = Math.hypot(dx, dy);
+      if (d > radius) continue;
+      const fall = 1 - d / radius;
+      const f = fall * fall * power;
+      p.px -= dirX * f;
+      p.py -= dirY * f;
+      hit = true;
+    }
+    return hit;
+  }
+
+  function pokeAt(x, y, power = 8) {
+    // push inward toward the core, with a small tangential kick
+    const dx = center.x - x, dy = center.y - y;
+    const d = Math.hypot(dx, dy) || 1;
+    impulseAt(x, y, dx / d, dy / d, power, restR * 0.55);
+    ripples.push({ x, y, r: 6, max: restR * 0.55, life: 1, hue: 320 });
+    moodTarget = Math.min(1, moodTarget + 0.5);
+    thwack(0.7);
+    spawnSparks(x, y, 7);
+  }
+
+  function squeeze() {
+    const R = restR;
+    impulseAt(center.x - R * 0.85, center.y, 1, 0, 10, R * 0.9);
+    impulseAt(center.x + R * 0.85, center.y, -1, 0, 10, R * 0.9);
+    ripples.push({ x: center.x - R * 0.7, y: center.y, r: 4, max: R * 0.55, life: 1, hue: 285 });
+    ripples.push({ x: center.x + R * 0.7, y: center.y, r: 4, max: R * 0.55, life: 1, hue: 285 });
+    moodTarget = 1;
+    boing(1.1, 0.85);
+  }
+
+  function slap() {
+    const fromLeft = Math.random() > 0.5;
+    const y = center.y + rand(-restR * 0.3, restR * 0.3);
+    const x = center.x + (fromLeft ? -restR * 0.9 : restR * 0.9);
+    impulseAt(x, y, fromLeft ? 1 : -1, rand(-0.15, 0.15), 14, restR * 0.95);
+    ripples.push({ x, y, r: 6, max: restR * 0.8, life: 1, hue: 335 });
+    moodTarget = 1;
+    thwack(1.35);
+    spawnSparks(x, y, 14);
+  }
+
+  function spawnSparks(x, y, count) {
+    for (let i = 0; i < count; i++) {
+      const a = rand(0, TAU), s = rand(1.5, 5.5);
+      sparks.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 1, size: rand(1.5, 3.4), hue: rand(300, 350) });
+    }
+  }
+
+  // ---------- pointer ----------
+  function pointerPos(e) {
+    const r = canvas.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  function beginGrab(e) {
+    const p = pointerPos(e);
+    pointer.x = p.x; pointer.y = p.y;
+    pointer.down = true;
+    pointer.id = e.pointerId;
+    grab.active = true;
+    grab.indices.length = 0;
+    grab.offsets.length = 0;
+    grab.strength = 0;
+    grab.moved = 0;
+    grab.startX = p.x;
+    grab.startY = p.y;
+    const radius = restR * 0.72;
+    for (let i = 0; i < N; i++) {
+      const n = nodes[i];
+      const d = Math.hypot(n.x - p.x, n.y - p.y);
+      if (d < radius) {
+        grab.indices.push(i);
+        grab.offsets.push({ x: n.x - p.x, y: n.y - p.y });
+      }
+    }
+    if (!grab.indices.length) {
+      const inside = Math.hypot(p.x - center.x, p.y - center.y) < restR * 1.08;
+      if (inside) {
+        // grabbed the middle of the body: pull the nearest arc of the rim
+        let nearest = 0, best = Infinity;
+        for (let i = 0; i < N; i++) {
+          const d = Math.hypot(nodes[i].x - p.x, nodes[i].y - p.y);
+          if (d < best) { best = d; nearest = i; }
+        }
+        for (let k = -5; k <= 5; k++) {
+          const idx = (nearest + k + N) % N;
+          grab.indices.push(idx);
+          grab.offsets.push({ x: nodes[idx].x - p.x, y: nodes[idx].y - p.y });
+        }
+      }
+    }
+    if (!grab.indices.length) {
+      // grabbed empty space: poke instead
+      pokeAt(p.x, p.y, 6);
+      grab.active = false;
+      pointer.down = false;
+      return;
+    }
+    canvas.classList.add("dragging");
+    moodTarget = 0.65;
+    boing(0.5, 1.2);
+    try { canvas.setPointerCapture(e.pointerId); } catch {}
+  }
+
+  function moveGrab(e) {
+    const p = pointerPos(e);
+    if (pointer.down && e.pointerId === pointer.id) {
+      grab.moved += Math.hypot(p.x - pointer.x, p.y - pointer.y);
+      grab.strength = Math.min(1.7, 0.35 + grab.moved / (restR * 2.2));
+      moodTarget = Math.min(1, 0.5 + grab.strength * 0.35);
+    }
+    pointer.x = p.x; pointer.y = p.y;
+  }
+
+  function endGrab(e) {
+    if (e && pointer.id !== null && e.pointerId !== pointer.id) return;
+    if (!grab.active) { pointer.down = false; return; }
+    grab.active = false;
+    pointer.down = false;
+    pointer.id = null;
+    canvas.classList.remove("dragging");
+    const power = Math.min(1.4, 0.3 + grab.moved / (restR * 2));
+    if (grab.moved < 6) pokeAt(pointer.x, pointer.y, 8);
+    else { boing(power, 0.9); spawnSparks(pointer.x, pointer.y, Math.round(6 + power * 6)); }
+    moodTarget = 0.15;
+  }
+
+  canvas.addEventListener("pointerdown", (e) => { if (started) { e.preventDefault(); beginGrab(e); } });
+  canvas.addEventListener("pointermove", (e) => { if (started) moveGrab(e); });
+  canvas.addEventListener("pointerup", (e) => { if (started) endGrab(e); });
+  canvas.addEventListener("pointercancel", (e) => { if (started) endGrab(e); });
+  canvas.addEventListener("dblclick", (e) => {
+    if (!started) return;
+    const p = pointerPos(e);
+    pokeAt(p.x, p.y, 11);
+  });
+
+  // ---------- render ----------
+  function smoothPath() {
+    ctx.beginPath();
+    const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+    let m = mid(nodes[N - 1], nodes[0]);
+    ctx.moveTo(m.x, m.y);
+    for (let i = 0; i < N; i++) {
+      const p = nodes[i];
+      const n = nodes[(i + 1) % N];
+      const mm = mid(p, n);
+      ctx.quadraticCurveTo(p.x, p.y, mm.x, mm.y);
+    }
+    ctx.closePath();
+  }
+
+  function faceFrame() {
+    // face rides on the upper-front of the blob
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of nodes) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    faceX = (minX + maxX) / 2;
+    faceY = minY + (maxY - minY) * 0.4;
+    faceSX = clamp((maxX - minX) / (restR * 1.85), 0.6, 1.45);
+    faceSY = clamp((maxY - minY) / (restR * 1.9), 0.6, 1.35);
+  }
+
+  function drawFace(t) {
+    faceFrame();
+    const squish = mood;
+    const eyeGap = 26 * faceSX;
+    const eyeY = 0;
+    const blinkAmt = blink;
+    const eyeH = (10 - squish * 3) * (1 - blinkAmt * 0.92) * faceSY;
+    const eyeW = (8.5 + squish * 1.5) * faceSX;
+    ctx.save();
+    ctx.translate(faceX, faceY);
+
+    // blush
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = "#ff7ab0";
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(s * (eyeGap + 8 * faceSX), eyeY + 17 * faceSY, 12 * faceSX, 7 * faceSY, 0, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // eyes
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      if (eyeH < 2.2) {
+        ctx.strokeStyle = "#2b0f22";
+        ctx.lineWidth = 3;
+        ctx.lineCap = "round";
+        ctx.moveTo(s * eyeGap - eyeW, eyeY);
+        ctx.quadraticCurveTo(s * eyeGap, eyeY + 4, s * eyeGap + eyeW, eyeY);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = "#2b0f22";
+        ctx.ellipse(s * eyeGap, eyeY, eyeW, eyeH, 0, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = "rgba(255,255,255,0.9)";
+        ctx.beginPath();
+        ctx.ellipse(s * eyeGap - eyeW * 0.3, eyeY - eyeH * 0.35, eyeW * 0.28, eyeH * 0.28, 0, 0, TAU);
+        ctx.fill();
+      }
+    }
+
+    // mouth
+    ctx.strokeStyle = "#2b0f22";
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    const mouthY = 24 * faceSY;
+    const openness = 2 + squish * 9;
+    ctx.beginPath();
+    if (squish > 0.45) {
+      ctx.fillStyle = "#2b0f22";
+      ctx.ellipse(0, mouthY + 2, 8 * faceSX, openness, 0, 0, TAU);
+      ctx.fill();
+    } else {
+      ctx.moveTo(-9 * faceSX, mouthY);
+      ctx.quadraticCurveTo(0, mouthY + 9 * faceSY, 9 * faceSX, mouthY);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function render(now) {
+    const t = now / 1000;
+    ctx.clearRect(0, 0, W, H);
+
+    // ambient glow
+    const g = ctx.createRadialGradient(center.x, center.y, restR * 0.2, center.x, center.y, restR * 2.4);
+    g.addColorStop(0, "rgba(255,95,162,0.18)");
+    g.addColorStop(0.45, "rgba(139,92,246,0.10)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    // ripples
+    for (let i = ripples.length - 1; i >= 0; i--) {
+      const r = ripples[i];
+      r.life -= 0.03;
+      r.r += (r.max - r.r) * 0.09;
+      if (r.life <= 0) { ripples.splice(i, 1); continue; }
+      ctx.beginPath();
+      ctx.strokeStyle = `hsla(${r.hue}, 90%, 74%, ${r.life * 0.28})`;
+      ctx.lineWidth = 1.6 * r.life;
+      ctx.arc(r.x, r.y, r.r, 0, TAU);
+      ctx.stroke();
+    }
+
+    // sparks
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const s = sparks[i];
+      s.life -= 0.03;
+      s.x += s.vx; s.y += s.vy;
+      s.vy += 0.12;
+      s.vx *= 0.98;
+      if (s.life <= 0) { sparks.splice(i, 1); continue; }
+      ctx.beginPath();
+      ctx.fillStyle = `hsla(${s.hue}, 95%, 72%, ${s.life})`;
+      ctx.arc(s.x, s.y, s.size * s.life, 0, TAU);
+      ctx.fill();
+    }
+
+    // shadow (radial gradient keeps this cheap under software rendering)
+    ctx.save();
+    const sy = center.y + restR * 1.18;
+    const sr = restR * 0.95;
+    const sg = ctx.createRadialGradient(center.x, sy, 0, center.x, sy, sr);
+    sg.addColorStop(0, "rgba(0,0,0,0.45)");
+    sg.addColorStop(0.6, "rgba(0,0,0,0.2)");
+    sg.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = sg;
+    ctx.beginPath();
+    ctx.ellipse(center.x, sy, sr, sr * 0.2, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+
+    // body
+    smoothPath();
+    const body = ctx.createRadialGradient(
+      center.x - restR * 0.32, center.y - restR * 0.42, restR * 0.1,
+      center.x, center.y, restR * 1.35
+    );
+    body.addColorStop(0, "#ffe0ef");
+    body.addColorStop(0.28, "#ff9ec8");
+    body.addColorStop(0.62, "#f45ba2");
+    body.addColorStop(0.86, "#c33a86");
+    body.addColorStop(1, "#8d2168");
+    ctx.fillStyle = body;
+    ctx.shadowColor = "rgba(255,95,162,0.55)";
+    ctx.shadowBlur = 26;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // glossy highlight
+    ctx.save();
+    smoothPath();
+    ctx.clip();
+    const hl = ctx.createRadialGradient(
+      center.x - restR * 0.4, center.y - restR * 0.55, 2,
+      center.x - restR * 0.2, center.y - restR * 0.2, restR * 0.95
+    );
+    hl.addColorStop(0, "rgba(255,255,255,0.55)");
+    hl.addColorStop(0.35, "rgba(255,255,255,0.10)");
+    hl.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = hl;
+    ctx.fillRect(center.x - restR * 1.5, center.y - restR * 1.5, restR * 3, restR * 3);
+    ctx.restore();
+
+    // rim
+    smoothPath();
+    ctx.strokeStyle = "rgba(255, 214, 235, 0.55)";
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+
+    // inner rim shadow
+    ctx.save();
+    smoothPath();
+    ctx.clip();
+    ctx.strokeStyle = "rgba(90, 10, 55, 0.35)";
+    ctx.lineWidth = 14;
+    ctx.stroke();
+    ctx.restore();
+
+    drawFace(t);
+
+    // grab ring
+    if (grab.active) {
+      ctx.beginPath();
+      ctx.strokeStyle = "rgba(255,255,255,0.5)";
+      ctx.lineWidth = 1.4;
+      ctx.setLineDash([5, 7]);
+      ctx.arc(pointer.x, pointer.y, restR * 0.34 + Math.sin(t * 8) * 2, 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  // ---------- loop ----------
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (started) {
+      acc += dt;
+      const fixed = 1 / 120;
+      let guard = 0;
+      while (acc >= fixed && guard++ < 8) { step(fixed); acc -= fixed; }
+      mood += (moodTarget - mood) * 0.08;
+      moodTarget += (0 - moodTarget) * 0.012;
+      if (time > blinkAt) { blink = 1; blinkAt = time + rand(2.4, 5.2); }
+      blink = Math.max(0, blink - dt * 6);
+    }
+    render(now);
+
+    const speed = nodes.reduce((s, p) => s + Math.hypot(p.x - p.px, p.y - p.py), 0) / N;
+    fpsEl.textContent = String(Math.round(1 / Math.max(dt, 1e-4)));
+    energyEl.textContent = String(Math.round(speed * 12));
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- controls ----------
+  function start() {
+    if (started) return;
+    started = true;
+    initAudio();
+    if (audio && audio.state === "suspended") audio.resume();
+    overlay.classList.add("hidden");
+    moodTarget = 0.35;
+    boing(0.9, 1.1);
+    setTimeout(() => { moodTarget = 0; }, 500);
+  }
+  startBtn.addEventListener("click", start);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) start(); });
+
+  document.getElementById("squeeze").addEventListener("click", () => { initAudio(); squeeze(); });
+  document.getElementById("poke").addEventListener("click", () => {
+    initAudio();
+    const a = rand(0, TAU);
+    pokeAt(center.x + Math.cos(a) * restR * 0.7, center.y + Math.sin(a) * restR * 0.7, 9);
+  });
+  document.getElementById("slap").addEventListener("click", () => { initAudio(); slap(); });
+  document.getElementById("calm").addEventListener("click", () => {
+    for (const p of nodes) { p.px = p.x - (p.x - p.px) * 0.15; p.py = p.y - (p.y - p.py) * 0.15; }
+    moodTarget = 0;
+    boing(0.5, 0.7);
+  });
+  document.getElementById("reset").addEventListener("click", () => { build(); moodTarget = 0; });
+
+  softEl.addEventListener("input", () => { softness = Number(softEl.value); });
+  dampEl.addEventListener("input", () => { damping = Number(dampEl.value); });
+
+  window.addEventListener("keydown", (e) => {
+    if (!started) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); start(); } return; }
+    if (e.key === "s" || e.key === "S") squeeze();
+    else if (e.key === "p" || e.key === "P") document.getElementById("poke").click();
+    else if (e.key === "l" || e.key === "L") slap();
+    else if (e.key === "r" || e.key === "R") build();
+  });
+
+  window.addEventListener("resize", resize);
+  resize();
+  requestAnimationFrame(frame);
+
+  // Small introspection hook used by smoke tests.
+  window.__jellyDebug = () => {
+    let maxR = 0, maxV = 0;
+    for (const p of nodes) {
+      maxR = Math.max(maxR, Math.hypot(p.x - center.x, p.y - center.y));
+      maxV = Math.max(maxV, Math.hypot(p.x - p.px, p.y - p.py));
+    }
+    return {
+      started,
+      restR: Math.round(restR),
+      maxR: Math.round(maxR),
+      maxV: Number(maxV.toFixed(2)),
+      nodes: nodes.length,
+    };
+  };
+})();
+</script>
+</body>
+</html>
